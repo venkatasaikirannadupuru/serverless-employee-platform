@@ -22,8 +22,12 @@ def lambda_handler(event, context):
 
     # Get all employees
     if method == "GET" and path == "/employees":
-        result = table.scan()
-        return response(200, result.get("Items", []))
+        try:
+            result = table.scan()
+            return response(200, result.get("Items", []))
+        except ClientError as error:
+            print(f"DynamoDB scan error: {error}")
+            return response(500, {"message": "Failed to fetch employees"})
 
     # Create employee
     if method == "POST" and path == "/employees":
@@ -45,14 +49,19 @@ def lambda_handler(event, context):
                 {"message": "name and email are required"}
             )
 
-        table.put_item(Item=employee)
+        try:
+            table.put_item(Item=employee)
 
-        publish_notification(
-            f"Employee created: {employee['name']} "
-            f"({employee['employee_id']})"
-        )
+            publish_notification(
+                f"Employee created: {employee['name']} "
+                f"({employee['employee_id']})"
+            )
 
-        return response(201, employee)
+            return response(201, employee)
+
+        except ClientError as error:
+            print(f"DynamoDB put error: {error}")
+            return response(500, {"message": "Failed to create employee"})
 
     # Update employee
     if method == "PUT" and path.startswith("/employees/"):
@@ -63,36 +72,43 @@ def lambda_handler(event, context):
         except json.JSONDecodeError:
             return response(400, {"message": "Invalid JSON body"})
 
-        update_fields = []
+        update_parts = []
         expression_values = {}
+        expression_names = {}
 
         if "name" in body:
-            update_fields.append("#name = :name")
+            update_parts.append("#name = :name")
+            expression_names["#name"] = "name"
             expression_values[":name"] = body["name"]
 
         if "email" in body:
-            update_fields.append("email = :email")
+            update_parts.append("email = :email")
             expression_values[":email"] = body["email"]
 
         if "department" in body:
-            update_fields.append("department = :department")
+            update_parts.append("department = :department")
             expression_values[":department"] = body["department"]
 
-        if not update_fields:
+        if not update_parts:
             return response(
                 400,
                 {"message": "No fields provided for update"}
             )
 
+        update_params = {
+            "Key": {
+                "employee_id": employee_id
+            },
+            "UpdateExpression": "SET " + ", ".join(update_parts),
+            "ExpressionAttributeValues": expression_values,
+            "ReturnValues": "ALL_NEW"
+        }
+
+        if expression_names:
+            update_params["ExpressionAttributeNames"] = expression_names
+
         try:
-            result = table.update_item(
-                Key={"employee_id": employee_id},
-                UpdateExpression="SET " + ", ".join(update_fields),
-                ExpressionAttributeNames={"#name": "name"}
-                if "name" in body else None,
-                ExpressionAttributeValues=expression_values,
-                ReturnValues="ALL_NEW"
-            )
+            result = table.update_item(**update_params)
 
             employee = result.get("Attributes", {})
 
@@ -103,9 +119,10 @@ def lambda_handler(event, context):
             return response(200, employee)
 
         except ClientError as error:
+            print(f"DynamoDB update error: {error}")
             return response(
                 500,
-                {"message": error.response["Error"]["Message"]}
+                {"message": "Failed to update employee"}
             )
 
     # Delete employee
@@ -139,9 +156,10 @@ def lambda_handler(event, context):
             )
 
         except ClientError as error:
+            print(f"DynamoDB delete error: {error}")
             return response(
                 500,
-                {"message": error.response["Error"]["Message"]}
+                {"message": "Failed to delete employee"}
             )
 
     return response(404, {"message": "Route not found"})
@@ -149,6 +167,7 @@ def lambda_handler(event, context):
 
 def publish_notification(message):
     if not topic_arn:
+        print("SNS_TOPIC_ARN is not configured")
         return
 
     try:
