@@ -22,24 +22,42 @@ resource "aws_apigatewayv2_integration" "lambda" {
   payload_format_version = "2.0"
 }
 
+# GET /health
 resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.employee_api.id
   route_key = "GET /health"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+# GET /employees
 resource "aws_apigatewayv2_route" "employees_get" {
   api_id    = aws_apigatewayv2_api.employee_api.id
   route_key = "GET /employees"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+# POST /employees
 resource "aws_apigatewayv2_route" "employees_post" {
   api_id    = aws_apigatewayv2_api.employee_api.id
   route_key = "POST /employees"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+# PUT /employees/{employee_id}
+resource "aws_apigatewayv2_route" "employees_put" {
+  api_id    = aws_apigatewayv2_api.employee_api.id
+  route_key = "PUT /employees/{employee_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+# DELETE /employees/{employee_id}
+resource "aws_apigatewayv2_route" "employees_delete" {
+  api_id    = aws_apigatewayv2_api.employee_api.id
+  route_key = "DELETE /employees/{employee_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+# Default stage
 resource "aws_apigatewayv2_stage" "default" {
   api_id = aws_apigatewayv2_api.employee_api.id
   name   = "$default"
@@ -47,9 +65,11 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
+# Allow API Gateway to invoke Lambda
 resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
+  statement_id = "AllowAPIGatewayInvoke"
+  action       = "lambda:InvokeFunction"
+
   function_name = aws_lambda_function.employee_api.function_name
   principal     = "apigateway.amazonaws.com"
 
